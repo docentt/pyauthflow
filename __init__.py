@@ -21,6 +21,8 @@ limitations under the License.
 from .token_manager import (
     discover_oidc_metadata,
     get_access_token_with_interactive_device_flow,
+    get_access_token_with_interactive_authorization_code_flow,
+    complete_authorization_code_exchange,
     clear_token_store,
     clear_token_store_entry,
     list_token_store_entries,
@@ -32,6 +34,8 @@ from .token_manager import (
 __all__ = [
     "discover_oidc_metadata",
     "get_access_token_with_interactive_device_flow",
+    "get_access_token_with_interactive_authorization_code_flow",
+    "complete_authorization_code_exchange",
     "clear_token_store",
     "clear_token_store_entry",
     "list_token_store_entries",

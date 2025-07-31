@@ -24,6 +24,8 @@ import json
 import time
 import requests
 from pathlib import Path
+import secrets
+import urllib.parse
 import hashlib
 import base64
 from datetime import datetime
@@ -74,6 +76,22 @@ def _is_token_valid(token, min_ttl):
     exp = payload["exp"]
     return (exp - int(time.time())) >= min_ttl
 
+def _refresh_access_token(client_id, refresh_token, token_endpoint):
+    try:
+        resp = requests.post(token_endpoint, data={
+            "grant_type": "refresh_token",
+            "client_id": client_id,
+            "refresh_token": refresh_token
+        })
+        if resp.ok:
+            data = resp.json()
+            return data.get("access_token"), data.get("refresh_token"), data.get("scope")
+        else:
+            print(f"⚠️ Refresh grant failed (HTTP {resp.status_code}): {resp.text}")
+    except Exception as e:
+        print(f"❌ Error during refresh token request: {str(e)}")
+    return None, None, None
+
 def discover_oidc_metadata(issuer):
     try:
         discovery_url = f"{issuer}/.well-known/openid-configuration"
@@ -108,22 +126,6 @@ def get_access_token_with_interactive_device_flow(client_id, issuer, scope=DEFAU
         if not token_endpoint or not device_endpoint:
             print("❌ Missing token or device endpoint in discovery metadata.")
             return None
-
-        def refresh_with_token(refresh_token):
-            try:
-                resp = requests.post(token_endpoint, data={
-                    "grant_type": "refresh_token",
-                    "client_id": client_id,
-                    "refresh_token": refresh_token
-                })
-                if resp.ok:
-                    data = resp.json()
-                    return data.get("access_token"), data.get("refresh_token"), data.get("scope")
-                else:
-                    print(f"⚠️ Refresh grant failed (HTTP {resp.status_code}): {resp.text}")
-            except Exception as e:
-                print(f"❌ Error during refresh token request: {str(e)}")
-            return None, None, None
 
         def perform_device_flow():
             try:
@@ -214,7 +216,7 @@ def get_access_token_with_interactive_device_flow(client_id, issuer, scope=DEFAU
                 return None, None, None
 
         if refresh_token:
-            access_token, new_refresh, actual_scope = refresh_with_token(refresh_token)
+            access_token, new_refresh, actual_scope = _refresh_access_token(client_id , refresh_token, token_endpoint)
             if access_token:
                 effective_scope_key = _scope_key(actual_scope or requested_scope_key)
                 if key not in store:
@@ -248,6 +250,191 @@ def get_access_token_with_interactive_device_flow(client_id, issuer, scope=DEFAU
         return None
     except Exception as e:
         print(str(e))
+        return None
+
+def get_access_token_with_interactive_authorization_code_flow(client_id, issuer, redirect_uri, scope=DEFAULT_SCOPE, min_ttl=DEFAULT_MIN_TTL, use_pkce=True):
+    try:
+        key = _token_key(client_id, issuer)
+        requested_scope_key = _scope_key(scope)
+
+        store = _load_store()
+        client_entry = store.get(key, {})
+        entry = client_entry.get(requested_scope_key, {})
+
+        refresh_token = entry.get("refresh_token")
+        cached_token = entry.get("access_token")
+
+        if cached_token and _is_token_valid(cached_token, min_ttl):
+            print("ℹ️ Using cached access token.")
+            return cached_token
+
+        discovery = discover_oidc_metadata(issuer)
+        if not discovery:
+            return None
+
+        token_endpoint = discovery.get("token_endpoint")
+        authorization_endpoint = discovery.get("authorization_endpoint")
+
+        if not token_endpoint:
+            print("❌ Missing token endpoint in discovery metadata.")
+            return None
+
+        if refresh_token:
+            access_token, new_refresh, actual_scope = _refresh_access_token(client_id , refresh_token, token_endpoint)
+            if access_token:
+                effective_scope_key = _scope_key(actual_scope or requested_scope_key)
+                if key not in store:
+                    store[key] = {}
+                store[key][effective_scope_key] = {
+                    "refresh_token": new_refresh,
+                    "access_token": access_token,
+                    "client_id": client_id,
+                    "issuer": issuer
+                }
+                print("🔄 Tokens refreshed successfully.")
+                _save_store(store)
+                return access_token
+
+        if not authorization_endpoint:
+            print("❌ No authorization_endpoint in OIDC discovery.")
+            return None
+
+        state = secrets.token_urlsafe(16)
+        code_verifier = code_challenge = None
+
+        if use_pkce:
+            code_verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode()
+            code_challenge = base64.urlsafe_b64encode(
+                hashlib.sha256(code_verifier.encode()).digest()
+            ).rstrip(b"=").decode()
+
+        store.setdefault(key, {})
+        store[key].setdefault(requested_scope_key, {})
+        store[key][requested_scope_key]["_pending_auth_code"] = {
+            "redirect_uri": redirect_uri,
+            "state": state
+        }
+
+        if code_verifier:
+            store[key][requested_scope_key]["_pending_auth_code"]["code_verifier"] = code_verifier
+
+        _save_store(store)
+
+        params = {
+            "response_type": "code",
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "scope": requested_scope_key,
+            "state": state
+        }
+
+        if code_challenge:
+            params["code_challenge"] = code_challenge
+            params["code_challenge_method"] = "S256"
+
+        if "offline_access" in requested_scope_key.split():
+            params["prompt"] = "consent"
+
+        auth_url = f"{authorization_endpoint}?{urllib.parse.urlencode(params)}"
+
+        print("\n🔐 Authorize Access via Browser")
+        print("----------------------------------------")
+        print("Open the following URL in your browser to authorize:")
+        print(f"➡️  {auth_url}")
+        print("\nAfter completing the authorization, you will be redirected to:")
+        print(f"{redirect_uri}?code=...&state=...")
+        print("Use the code and state to complete the token exchange.\n")
+
+        return None
+
+    except Exception as e:
+        print(f"❌ Error initiating authorization code flow: {str(e)}")
+        return None
+
+def complete_authorization_code_exchange(client_id, issuer, scope, authorization_code, state, client_secret=None):
+    try:
+        store = _load_store()
+        key = _token_key(client_id, issuer)
+        requested_scope_key = _scope_key(scope)
+
+        entry = store.get(key, {}).get(requested_scope_key)
+        if not entry or "_pending_auth_code" not in entry:
+            print(f"❌ No pending authorization code flow found for given client and scope")
+            return None
+
+        pending = entry["_pending_auth_code"]
+        redirect_uri = pending.get("redirect_uri")
+        code_verifier = pending.get("code_verifier")
+        expected_state = pending.get("state")
+
+        if not redirect_uri:
+            print("❌ Missing redirect URI in pending state.")
+            return None
+
+        if expected_state is None:
+            print("❌ Missing stored state in pending authorization.")
+            return None
+
+        if state != expected_state:
+            print("❌ State mismatch! Potential CSRF or tampering detected.")
+            return None
+
+        discovery = discover_oidc_metadata(issuer)
+        if not discovery:
+            return None
+
+        token_endpoint = discovery.get("token_endpoint")
+        if not token_endpoint:
+            print("❌ No token endpoint found in discovery metadata.")
+            return None
+
+        data = {
+            "grant_type": "authorization_code",
+            "code": authorization_code,
+            "redirect_uri": redirect_uri,
+            "client_id": client_id
+        }
+
+        if code_verifier:
+            data["code_verifier"] = code_verifier
+
+        auth = (client_id, client_secret) if client_secret else None
+
+        resp = requests.post(token_endpoint, data=data, auth=auth)
+
+        if resp.status_code != 200:
+            print(f"❌ Token exchange failed (HTTP {resp.status_code}): {resp.text}")
+            return None
+
+        token_data = resp.json()
+        access_token = token_data.get("access_token")
+        refresh_token = token_data.get("refresh_token")
+        granted_scope = token_data.get("scope", requested_scope_key)
+        effective_scope_key = _scope_key(granted_scope)
+
+        if not access_token or not refresh_token:
+            print("❌ Token response missing required fields.")
+            return None
+
+        store.setdefault(key, {})
+        store[key][effective_scope_key] = {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "client_id": client_id,
+            "issuer": issuer
+        }
+
+        if "_pending_auth_code" in store[key].get(requested_scope_key, {}):
+            del store[key][requested_scope_key]["_pending_auth_code"]
+            if not store[key][requested_scope_key]:
+                del store[key][requested_scope_key]
+
+        _save_store(store)
+        print("✅ Authorization code exchanged and tokens stored.")
+        return access_token
+
+    except Exception as e:
+        print(f"❌ Error during authorization code exchange: {str(e)}")
         return None
 
 def introspect_token(token, client_id, client_secret, issuer=None):
