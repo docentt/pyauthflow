@@ -76,13 +76,15 @@ def _is_token_valid(token, min_ttl):
     exp = payload["exp"]
     return (exp - int(time.time())) >= min_ttl
 
-def _refresh_access_token(client_id, refresh_token, token_endpoint):
+def _refresh_access_token(client_id, refresh_token, token_endpoint, client_secret=None):
     try:
+        auth = (client_id, client_secret) if client_secret is not None else None
+
         resp = requests.post(token_endpoint, data={
             "grant_type": "refresh_token",
             "client_id": client_id,
             "refresh_token": refresh_token
-        })
+        }, auth=auth)
         if resp.ok:
             data = resp.json()
             return data.get("access_token"), data.get("refresh_token"), data.get("scope")
@@ -252,7 +254,7 @@ def get_access_token_with_interactive_device_flow(client_id, issuer, scope=DEFAU
         print(str(e))
         return None
 
-def get_access_token_with_interactive_authorization_code_flow(client_id, issuer, redirect_uri, scope=DEFAULT_SCOPE, min_ttl=DEFAULT_MIN_TTL, use_pkce=True):
+def get_access_token_with_interactive_authorization_code_flow(client_id, issuer, redirect_uri, scope=DEFAULT_SCOPE, min_ttl=DEFAULT_MIN_TTL, use_pkce=True, client_secret=None):
     try:
         key = _token_key(client_id, issuer)
         requested_scope_key = _scope_key(scope)
@@ -280,7 +282,7 @@ def get_access_token_with_interactive_authorization_code_flow(client_id, issuer,
             return None
 
         if refresh_token:
-            access_token, new_refresh, actual_scope = _refresh_access_token(client_id , refresh_token, token_endpoint)
+            access_token, new_refresh, actual_scope = _refresh_access_token(client_id , refresh_token, token_endpoint, client_secret)
             if access_token:
                 effective_scope_key = _scope_key(actual_scope or requested_scope_key)
                 if key not in store:

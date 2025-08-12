@@ -133,7 +133,7 @@ If neither is valid or available, it initiates the Device Authorization Grant fl
 **Returns:**
 - `access_token` *(str or None)* - Valid access token or `None` if flow fails.
 
-#### `get_access_token_with_interactive_authorization_code_flow(client_id, issuer, redirect_uri, scope="openid", min_ttl=60, use_pkce=True)`
+#### `get_access_token_with_interactive_authorization_code_flow(client_id, issuer, redirect_uri, scope="openid", min_ttl=60, use_pkce=True, client_secret=None)`
 
 Attempts to reuse a cached access token or refresh it using a refresh token (RFC 6749 §6).  
 If neither is available or valid, it initiates the **Authorization Code Grant** (RFC 6749 §4.1) with optional **PKCE S256** (RFC 7636).  
@@ -148,6 +148,7 @@ To complete the flow, you must extract the `code` and `state` from the redirect 
 - `scope` *(str or list)* - Requested scopes (default: `"openid"`).
 - `min_ttl` *(int)* - Required minimum time-to-live (in seconds) for access token (default: `60`).
 - `use_pkce` *(bool)* - Whether to use PKCE with SHA-256 (S256) as the code challenge method. Recommended and enabled by default.
+- `client_secret` *(str or None)* - Client secret (required for confidential clients).
 
 **Returns:**
 - A valid `access_token` *(str)* if one was found in cache or successfully refreshed.
@@ -166,7 +167,7 @@ Supports both public and confidential clients, with or without **PKCE** (RFC 763
 - `scope` *(str or list)* - Scope used during initiation (must match).
 - `authorization_code` *(str)* - Code received after user authorization.
 - `state` *(str)* - State returned by the authorization server.
-- `client_secret` *(str or None)* - Client secret (required for confidential clients; optional for public clients).
+- `client_secret` *(str or None)* - Client secret (required for confidential clients).
 
 **Returns:**
 - `access_token` *(str or None)* - The retrieved access token, or `None` on error.
