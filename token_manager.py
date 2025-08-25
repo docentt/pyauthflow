@@ -361,7 +361,7 @@ def complete_authorization_code_exchange(client_id, issuer, scope, authorization
 
         entry = store.get(key, {}).get(requested_scope_key)
         if not entry or "_pending_auth_code" not in entry:
-            print(f"❌ No pending authorization code flow found for given client and scope")
+            print("❌ No pending authorization code flow found for given client and scope")
             return None
 
         pending = entry["_pending_auth_code"]
@@ -414,17 +414,22 @@ def complete_authorization_code_exchange(client_id, issuer, scope, authorization
         granted_scope = token_data.get("scope", requested_scope_key)
         effective_scope_key = _scope_key(granted_scope)
 
-        if not access_token or not refresh_token:
-            print("❌ Token response missing required fields.")
+        if not access_token:
+            print("❌ Token response missing required field: access_token.")
             return None
 
         store.setdefault(key, {})
-        store[key][effective_scope_key] = {
+        entry_to_store = {
             "access_token": access_token,
-            "refresh_token": refresh_token,
             "client_id": client_id,
             "issuer": issuer
         }
+        if refresh_token:
+            entry_to_store["refresh_token"] = refresh_token
+        else:
+            print("ℹ️ No refresh_token returned by authorization server; token refresh will not be possible.")
+
+        store[key][effective_scope_key] = entry_to_store
 
         if "_pending_auth_code" in store[key].get(requested_scope_key, {}):
             del store[key][requested_scope_key]["_pending_auth_code"]
