@@ -482,7 +482,7 @@ def introspect_token(token, client_id, client_secret, issuer=None):
         print(f"❌ Failed to introspect token: {str(e)}")
         return None
 
-def revoke_access_token(client_id, issuer, scope=DEFAULT_SCOPE):
+def revoke_access_token(client_id, issuer, scope=DEFAULT_SCOPE, client_secret=None):
     try:
         store = _load_store()
         key = _token_key(client_id, issuer)
@@ -490,52 +490,58 @@ def revoke_access_token(client_id, issuer, scope=DEFAULT_SCOPE):
 
         if key not in store or scope_key not in store[key]:
             print("ℹ️ No matching entry found.")
-            return
+            return False
 
         entry = store[key][scope_key]
 
-        if "access_token" not in entry:
+        access_token = entry.get("access_token")
+        if not access_token:
             print("ℹ️ No access token found for given client and scope.")
-            return
+            return False
 
-        access_token = entry["access_token"]
         payload = _decode_jwt_payload(access_token)
-        if not payload:
-            print("⚠️ Could not decode access token.")
-            return
-
-        exp = payload.get("exp")
-        if exp and int(time.time()) >= exp:
-            print("ℹ️ Access token is already expired.")
-            return
+        if payload:
+            exp = payload.get("exp")
+            if exp and int(time.time()) >= exp:
+                print("ℹ️ Access token is already expired.")
+                entry.pop("access_token", None)
+                store[key][scope_key] = entry
+                _save_store(store)
+                return True
 
         discovery = discover_oidc_metadata(issuer)
         if not discovery:
-            return
+            return False
 
         revocation_endpoint = discovery.get("revocation_endpoint")
         if not revocation_endpoint:
             print("⚠️ No revocation endpoint provided by discovery document.")
-            return
+            return False
 
-        resp = requests.post(revocation_endpoint, data={
+        auth = (client_id, client_secret) if client_secret else None
+        data = {
             "token": access_token,
             "token_type_hint": "access_token",
-            "client_id": client_id
-        })
+        }
+        if not client_secret:
+            data["client_id"] = client_id
+
+        resp = requests.post(revocation_endpoint, data=data, auth=auth)
 
         if resp.status_code == 200:
             print("✅ Access token revoked at authorization server.")
             entry.pop("access_token", None)
             store[key][scope_key] = entry
             _save_store(store)
+            return True
         else:
             print(f"⚠️ Failed to revoke access token: {resp.status_code} {resp.text}")
-
+            return False
     except Exception as e:
         print(f"❌ Failed to revoke access token: {str(e)}")
+        return False
 
-def revoke_refresh_token(client_id, issuer, scope=DEFAULT_SCOPE):
+def revoke_refresh_token(client_id, issuer, scope=DEFAULT_SCOPE, client_secret=None):
     try:
         store = _load_store()
         key = _token_key(client_id, issuer)
@@ -543,30 +549,32 @@ def revoke_refresh_token(client_id, issuer, scope=DEFAULT_SCOPE):
 
         if key not in store or scope_key not in store[key]:
             print("ℹ️ No matching entry found.")
-            return
+            return False
 
         entry = store[key][scope_key]
-
-        if "refresh_token" not in entry:
+        refresh_token = entry.get("refresh_token")
+        if not refresh_token:
             print("ℹ️ No refresh token found for given client and scope.")
-            return
-
-        refresh_token = entry["refresh_token"]
+            return False
 
         discovery = discover_oidc_metadata(issuer)
         if not discovery:
-            return
+            return False
 
         revocation_endpoint = discovery.get("revocation_endpoint")
         if not revocation_endpoint:
             print("⚠️ No revocation endpoint provided by discovery document.")
-            return
+            return False
 
-        resp = requests.post(revocation_endpoint, data={
+        auth = (client_id, client_secret) if client_secret else None
+        data = {
             "token": refresh_token,
             "token_type_hint": "refresh_token",
-            "client_id": client_id
-        })
+        }
+        if not client_secret:
+            data["client_id"] = client_id
+
+        resp = requests.post(revocation_endpoint, data=data, auth=auth)
 
         if resp.status_code == 200:
             print("✅ Refresh token revoked at authorization server.")
@@ -574,11 +582,13 @@ def revoke_refresh_token(client_id, issuer, scope=DEFAULT_SCOPE):
             if not store[key]:
                 del store[key]
             _save_store(store)
+            return True
         else:
             print(f"⚠️ Failed to revoke refresh token: {resp.status_code} {resp.text}")
-
+            return False
     except Exception as e:
         print(f"❌ Failed to revoke refresh token: {str(e)}")
+        return False
 
 def _remove_scope_entry(entries, scope_key, client_id, revoke_offline, revoke_online, remove_on_revoke_fail, discovery):
     entry = entries.get(scope_key)

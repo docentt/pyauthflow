@@ -190,30 +190,32 @@ Performs token introspection (RFC 7662) using the authorization server's introsp
 
 ### Token Revocation
 
-#### `revoke_access_token(client_id, issuer, scope)`
+#### `revoke_access_token(client_id, issuer, scope="openid", client_secret=None)`
 
 Revokes an access token (RFC 7009).
 
 **Parameters:**
 - `client_id` *(str)* - OAuth 2.0 client ID.
 - `issuer` *(str)* - OIDC issuer.
-- `scope` *(str or list)* - Scope associated with the token.
+- `scope` *(str or list)* - Scope associated with the token (default: `"openid"`).
+- `client_secret` *(str or None)* - OAuth 2.0 client secret.
 
 **Returns:**
-- None. Logs success/failure.
+- `bool` - True if the access token expired or was successfully revoked, False otherwise. Logs success/failure.
 
 
-#### `revoke_refresh_token(client_id, issuer, scope)`
+#### `revoke_refresh_token(client_id, issuer, scope="openid", client_secret=None)`
 
 Revokes a refresh token (RFC 7009).
 
 **Parameters:**
 - `client_id` *(str)* - OAuth 2.0 client ID.
 - `issuer` *(str)* - OIDC issuer.
-- `scope` *(str or list)* - Scope associated with the token.
+- `scope` *(str or list)* - Scope associated with the token (default: `"openid"`).
+- `client_secret` *(str or None)* - OAuth 2.0 client secret.
 
 **Returns:**
-- None. Logs success/failure.
+- `bool` - True if the refresh token was successfully revoked, False otherwise. Logs success/failure.
 
 
 ### Token Store Management
