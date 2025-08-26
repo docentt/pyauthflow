@@ -234,16 +234,18 @@ def get_access_token_with_interactive_device_flow(client_id, issuer, scope=DEFAU
                 return access_token
 
         access_token, refresh_token, actual_scope = perform_device_flow()
-        if access_token and refresh_token:
+        if access_token:
             effective_scope_key = _scope_key(actual_scope or requested_scope_key)
             if key not in store:
                 store[key] = {}
             store[key][effective_scope_key] = {
-                "refresh_token": refresh_token,
                 "access_token": access_token,
                 "client_id": client_id,
                 "issuer": issuer
             }
+            if refresh_token:
+                store[key][effective_scope_key]["refresh_token"] = refresh_token
+
             print("✅ Tokens acquired and stored successfully.")
             _save_store(store)
             return access_token
