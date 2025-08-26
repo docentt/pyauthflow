@@ -592,19 +592,33 @@ def _remove_scope_entry(entries, scope_key, client_id, revoke_offline, revoke_on
 
     if should_revoke:
         revoke_ok = False
-        refresh_token = entry.get("refresh_token")
-        if refresh_token and discovery:
+        if discovery:
             revocation_endpoint = discovery.get("revocation_endpoint")
+
             if revocation_endpoint:
-                resp = requests.post(revocation_endpoint, data={
-                    "token": refresh_token,
-                    "token_type_hint": "refresh_token",
-                    "client_id": client_id
-                })
-                if resp.status_code == 200:
-                    revoke_ok = True
-                else:
-                    print(f"⚠️ Failed to revoke refresh token for scope '{scope_key}': {resp.status_code} {resp.text}")
+                token_to_revoke = None
+                token_type_hint = None
+
+                if "refresh_token" in entry:
+                    token_to_revoke = entry.get("refresh_token")
+                    token_type_hint = "refresh_token"
+                elif "access_token" in entry:
+                    token_to_revoke = entry.get("access_token")
+                    token_type_hint = "access_token"
+
+                if token_to_revoke:
+                    resp = requests.post(
+                        revocation_endpoint,
+                        data={
+                            "token": token_to_revoke,
+                            "token_type_hint": token_type_hint,
+                            "client_id": client_id
+                        }
+                    )
+                    if resp.status_code == 200:
+                        revoke_ok = True
+                    else:
+                        print(f"⚠️ Failed to revoke {token_type_hint} for scope '{scope_key}': {resp.status_code} {resp.text}")
 
     if revoke_ok or remove_on_revoke_fail:
         del entries[scope_key]
