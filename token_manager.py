@@ -590,7 +590,7 @@ def revoke_refresh_token(client_id, issuer, scope=DEFAULT_SCOPE, client_secret=N
         print(f"❌ Failed to revoke refresh token: {str(e)}")
         return False
 
-def _remove_scope_entry(entries, scope_key, client_id, revoke_offline, revoke_online, remove_on_revoke_fail, discovery):
+def _remove_scope_entry(entries, scope_key, client_id, revoke_offline, revoke_online, remove_on_revoke_fail, discovery, client_secret=None):
     entry = entries.get(scope_key)
     if not entry:
         return False
@@ -617,25 +617,27 @@ def _remove_scope_entry(entries, scope_key, client_id, revoke_offline, revoke_on
                     token_type_hint = "access_token"
 
                 if token_to_revoke:
-                    resp = requests.post(
-                        revocation_endpoint,
-                        data={
-                            "token": token_to_revoke,
-                            "token_type_hint": token_type_hint,
-                            "client_id": client_id
-                        }
-                    )
+                    auth = (client_id, client_secret) if client_secret else None
+                    data = {
+                        "token": token_to_revoke,
+                        "token_type_hint": token_type_hint,
+                    }
+                    if not client_secret:
+                        data["client_id"] = client_id
+
+                    resp = requests.post(revocation_endpoint, data=data, auth=auth)
                     if resp.status_code == 200:
                         revoke_ok = True
                     else:
                         print(f"⚠️ Failed to revoke {token_type_hint} for scope '{scope_key}': {resp.status_code} {resp.text}")
 
     if revoke_ok or remove_on_revoke_fail:
-        del entries[scope_key]
+        if scope_key in entries:
+            del entries[scope_key]
         return True
     return False
 
-def clear_token_store_entry(client_id, issuer, scope=None, revoke_offline=True, revoke_online=False, remove_on_revoke_fail=False):
+def clear_token_store_entry(client_id, issuer, scope=None, revoke_offline=True, revoke_online=False, remove_on_revoke_fail=False, client_secret=None):
     try:
         store = _load_store()
         key = _token_key(client_id, issuer)
@@ -655,11 +657,11 @@ def clear_token_store_entry(client_id, issuer, scope=None, revoke_offline=True, 
             if not entry:
                 print(f"ℹ️ No entry found for the specified scope: '{requested_scope_key}'")
                 return False
-            if _remove_scope_entry(entries, requested_scope_key, client_id, revoke_offline, revoke_online, remove_on_revoke_fail, discovery):
+            if _remove_scope_entry(entries, requested_scope_key, client_id, revoke_offline, revoke_online, remove_on_revoke_fail, discovery, client_secret):
                 removed_scopes.append(requested_scope_key)
         else:
             for scope_key in original_scopes:
-                if _remove_scope_entry(entries, scope_key, client_id, revoke_offline, revoke_online, remove_on_revoke_fail, discovery):
+                if _remove_scope_entry(entries, scope_key, client_id, revoke_offline, revoke_online, remove_on_revoke_fail, discovery, client_secret):
                     removed_scopes.append(scope_key)
 
         if scope:

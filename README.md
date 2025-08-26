@@ -220,7 +220,7 @@ Revokes a refresh token (RFC 7009).
 
 ### Token Store Management
 
-#### `clear_token_store_entry(client_id, issuer, scope=None, revoke_offline=True, revoke_online=False, remove_on_revoke_fail=False)`
+#### `clear_token_store_entry(client_id, issuer, scope=None, revoke_offline=True, revoke_online=False, remove_on_revoke_fail=False, client_secret=None)`
 
 Removes a token entry from the local token store.
 
@@ -231,6 +231,7 @@ Removes a token entry from the local token store.
 - `revoke_offline` *(bool)* - Revoke tokens with `offline_access` before deletion (default: `True`).
 - `revoke_online` *(bool)* - Revoke other tokens (non-offline) before deletion (default: `False`).
 - `remove_on_revoke_fail` *(bool)* - If `False`, token is not removed if revocation fails (default: `False`).
+- `client_secret` *(str or None)* - OAuth 2.0 client secret.
 
 **Returns:**
 - `bool` - Whether the entry was successfully removed.
@@ -239,6 +240,7 @@ Removes a token entry from the local token store.
 #### `clear_token_store(revoke_offline=True, revoke_online=False, remove_on_revoke_fail=False)`
 
 Clears the entire token store, optionally revoking tokens.
+Please note that revocation of tokens issued to confidential clients may fail unless credentials are provided. If you need to revoke such entries, use `clear_token_store_entry(..., client_secret=...)` per client. 
 
 **Parameters:**
 - `revoke_offline` *(bool)* - Attempt to revoke all refresh tokens with `offline_access` (default: `True`).
